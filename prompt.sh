@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # UserPromptSubmit hook。
-#   - cron からの ping / 期限プロンプト ([away ...] で始まる) はそのまま通す
+#   - cron からの ping / 期限プロンプト ([away ping] / [away expired] に完全一致) はそのまま通す
 #   - /away の入力自身は無視する (arm.sh 側で処理)
 #   - それ以外 = ユーザーが戻った。state を消し、Claude に cron ジョブの削除を指示する
-#   - state が無いのに [away ...] が来たら、取り残されたジョブなので削除を指示する
+#   - state が無いのに [away ping] / [away expired] が来たら、取り残されたジョブなので削除を指示する
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="$DIR/state"
 LOG="$DIR/away.log"
