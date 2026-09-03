@@ -1,0 +1,5 @@
+{
+  "name": "away",
+  "version": "0.1.0",
+  "description": "離席モード。セッション内 cron で定期的に ping してプロンプトキャッシュを延命する。"
+}
