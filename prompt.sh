@@ -17,10 +17,10 @@ PROMPT=$(printf '%s' "$INPUT" | sed -n 's/.*"prompt" *: *"\([^"]*\)".*/\1/p' | h
 CLEANUP="CronList で prompt が [away ping] または [away expired] のジョブをすべて CronDelete する"
 
 case "$PROMPT" in
-  "[away "*)
+  "[away ping]"|"[away expired]")   # cron からの prompt は必ずこの文字列ちょうど (完全一致で人間の入力と区別)
     if [[ -f "$STATE" ]]; then
       # 期限到来なら フラグを下ろす (ping ジョブの削除は Claude が行う)
-      if [[ "$PROMPT" == "[away expired]"* ]]; then
+      if [[ "$PROMPT" == "[away expired]" ]]; then
         rm -f "$STATE"
         echo "$(date '+%F %T') expired -> state removed (sid=$SID)" >> "$LOG"
       fi

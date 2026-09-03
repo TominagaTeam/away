@@ -27,5 +27,5 @@ hooks:
 
 以後のルール:
 - prompt が `[away ping]` のターン: 「ack」とだけ返す。考察なし、ツール不使用
-- prompt が `[away expired]` のターン: `CronList` で prompt が `[away ping]` のジョブを `CronDelete` し、「離席モード終了」とだけ返す
+- prompt が `[away expired]` のターン: `CronList` で prompt が `[away ping]` および `[away expired]` のジョブをすべて `CronDelete` し（発火済みの one-shot も一覧に残るので自分自身も消す）、「離席モード終了」とだけ返す
 - hook から `[away] ユーザーが戻った…` の指示が来たターン: 指示どおり `CronList` と `CronDelete` で `[away ping]` / `[away expired]` のジョブを消し、その後はユーザーの入力に通常どおり対応する。離席モードには言及しない

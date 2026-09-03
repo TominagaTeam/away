@@ -7,7 +7,7 @@
 `/away` を打つと、セッション内 cron に 2 つのジョブを登録する。
 
 - ping ジョブ: 30 分ごとに `[away ping]` というプロンプトを流す。Claude は `ack` とだけ答える
-- 期限ジョブ: 指定時間（既定 3 時間）後に 1 回だけ `[away expired]` を流す。Claude は ping ジョブを消して終了する
+- 期限ジョブ: 指定時間（既定 3 時間）後に 1 回だけ `[away expired]` を流す。Claude は ping ジョブと期限ジョブ自身を消して終了する
 
 1 回の ping は、キャッシュ済みコンテキストの読み取りと数トークンの出力だけ。
 キャッシュが切れて戻ったときの再書き込みと比べて十分に安い。
@@ -33,7 +33,7 @@ sequenceDiagram
     C-->>U: 通常どおり応答
   else 期限
     K->>C: [away expired]
-    C->>K: CronDelete（ping）
+    C->>K: CronDelete ×2
     C-->>U: 離席モード終了
   end
 ```
