@@ -1,116 +1,118 @@
-# away — Claude Code 離席モード
-離席するとき、プロンプトキャッシュが切れないよう一定間隔で ping を打ち続けるスキル。
-戻ってきたときに全コンテキストをキャッシュへ書き直すコストを避ける。
-サブスク認証版での利用を想定。
+# away — Away mode for Claude Code
+[日本語版 README](README.ja.md)
 
-## 動作内容
-`/away` を打つと、セッション内 cron に 2 つのジョブを登録する。
+A skill that keeps pinging the session at a fixed interval while you're away, so the prompt cache doesn't expire.
+This avoids the cost of rewriting the entire context into the cache when you come back.
+Intended for subscription-authenticated use.
 
-- ping ジョブ: 30 分ごとに `[away ping]` というプロンプトを流す。Claude は `ack` とだけ答える
-- 期限ジョブ: 指定時間（既定 3 時間）後に 1 回だけ `[away expired]` を流す。Claude は ping ジョブと期限ジョブ自身を消して終了する
+## How it works
+Typing `/away` registers two jobs in the in-session cron.
 
-1 回の ping は、キャッシュ済みコンテキストの読み取りと数トークンの出力だけ。
-キャッシュが切れて戻ったときの再書き込みと比べて十分に安い。
+- Ping job: sends the prompt `[away ping]` every 30 minutes. Claude replies with just `ack`
+- Expiry job: sends `[away expired]` once after the given duration (default 3 hours). Claude deletes both the ping job and the expiry job itself, then ends
+
+Each ping is only a cache read of the existing context plus a few output tokens.
+That is far cheaper than rewriting the cache after it has expired.
 
 ```mermaid
 sequenceDiagram
-  participant U as ユーザー
+  participant U as User
   participant C as Claude Code
-  participant K as セッション内 cron
+  participant K as In-session cron
   participant P as prompt.sh (UserPromptSubmit hook)
   U->>C: /away 3h
-  C->>K: CronCreate ×2（ping: 30 分ごと、expired: 3 時間後に 1 回）
-  C-->>U: 離席モード: HH:MM まで
-  loop 30 分ごと
+  C->>K: CronCreate ×2 (ping: every 30 min, expired: once after 3 h)
+  C-->>U: Away mode: until HH:MM
+  loop every 30 min
     K->>C: [away ping]
-    C->>C: ack（cache read のみ）
+    C->>C: ack (cache read only)
   end
-  alt ユーザーが戻る
-    U->>C: 何か入力
+  alt User returns
+    U->>C: any input
     C->>P: UserPromptSubmit
-    P-->>C: 状態ファイル削除、「cron を消せ」
+    P-->>C: remove state file, "delete the cron jobs"
     C->>K: CronDelete ×2
-    C-->>U: 通常どおり応答
-  else 期限
+    C-->>U: responds as usual
+  else Expiry
     K->>C: [away expired]
     C->>K: CronDelete ×2
-    C-->>U: 離席モード終了
+    C-->>U: Away mode ended
   end
 ```
 
-## 前提条件
-- プロンプトキャッシュの TTL が 1 時間であること。TTL が 5 分の環境では 30 分ごとの ping は毎回キャッシュの書き直しになり、逆にコストが増える。（サブスク認証版の会話ではデフォルトの TTL が 1 時間）
-- 利用枠を超えて超過利用（extra usage）に入ると TTL はデフォルトで 5 分に落ちる。その状態では使わないこと
-- セッション内 cron（`CronCreate`）が使えること。`CLAUDE_CODE_DISABLE_CRON` が設定された環境では動かない
-- Windows は Git Bash が必要。無い場合 hook が PowerShell で実行され、動かない
-- Claude Code は skills-directory plugin に対応したバージョン（`~/.claude/skills/<name>/.claude-plugin/plugin.json` を認識するもの）
+## Requirements
+- Prompt cache TTL must be 1 hour. With a 5-minute TTL, every 30-minute ping rewrites the cache and increases cost instead. (Subscription-authenticated sessions default to a 1-hour TTL)
+- Once you exceed your usage limit and enter extra usage, the TTL drops to 5 minutes by default. Do not use this skill in that state
+- In-session cron (`CronCreate`) must be available. It does not work where `CLAUDE_CODE_DISABLE_CRON` is set
+- On Windows, Git Bash is required. Without it the hook runs under PowerShell and fails
+- Claude Code must support skills-directory plugins (recognizes `~/.claude/skills/<name>/.claude-plugin/plugin.json`)
 
-## インストール
-置き場所は `~/.claude/skills/away/` 固定。
+## Installation
+The location is fixed at `~/.claude/skills/away/`.
 
 ```bash
 git clone https://github.com/TominagaTeam/away ~/.claude/skills/away
 ```
 
-Claude Code を再起動すると `/away` が使えるようになる。
+Restart Claude Code and `/away` becomes available.
 
-## 使い方
+## Usage
 
 ```
 /away [duration]
 /away off
 ```
 
-| 引数 | 意味 | 既定 | 例 |
+| Argument | Meaning | Default | Examples |
 |---|---|---|---|
-| duration | 離席モードを続ける時間 | 3h | `90m` `2h30m` `45m` |
+| duration | How long to stay in away mode | 3h | `90m` `2h30m` `45m` |
 
-例:
+Examples:
 
 ```
-/away            # (引数無し) 3 時間
-/away 90m        # 90 分
-/away off        # 解除
+/away            # (no argument) 3 hours
+/away 90m        # 90 minutes
+/away off        # disarm
 ```
 
-開始すると「離席モード: HH:MM まで（3h）。30m ごとに ping（約 6 回）」のように表示される。
+On start it prints something like "Away mode: until HH:MM (3h). Pinging every 30m (about 6 times)".
 
-ping の間隔は 30 分固定。cron の分リストで表せる最長の周期で、キャッシュ TTL 1 時間に対して十分な余裕がある（cron の発火は最大 10% 遅れる）。短くしても延命効果は変わらずコストが増えるだけなので、引数にはしていない。
+The ping interval is fixed at 30 minutes. It is the longest period expressible as a cron minute list and leaves enough margin against the 1-hour cache TTL (cron may fire up to 10% late). A shorter interval would not extend the cache any further and would only add cost, so it is not an argument.
 
-### 解除
-- **離席から戻ったらそのままプロンプトを打つ**。hook が検知して cron を消し、通常どおり応答する
-- `/away off`（`stop` / `cancel` も同じ）で明示的に解除
-- 期限が来れば自動で終了する
+### Disarming
+- **When you're back, just type a prompt**. The hook detects it, deletes the cron jobs, and Claude responds as usual
+- `/away off` (`stop` / `cancel` also work) disarms explicitly
+- It ends automatically when the duration expires
 
-## 制限値
-| 項目 | 値 |
+## Limits
+| Item | Value |
 |---|---|
-| ping の間隔 | 30 分固定 |
-| duration の上限 | 12 時間 |
-| cron ジョブの寿命 | セッションを閉じるまで。Claude Code 側の仕様で最長 7 日 |
+| Ping interval | fixed at 30 minutes |
+| Maximum duration | 12 hours |
+| Cron job lifetime | until the session closes. Claude Code caps it at 7 days |
 
-## 動作上の注意
-- **待機中もセッションは通常の idle 状態**。Stop hook などでプロセスを占有しないので、Claude Desktop アプリの無応答監視（約 1000 秒）に掛からない。デスクトップ・ターミナル CLI のどちらでも同じ間隔で動く
-- **hook は `/away` を打ったセッションでだけ登録される**。使っていないセッションには何も影響しない
-- **解除時の cron 削除は Claude が行う**。hook は状態ファイルを消して「消せ」と指示するだけなので、Claude がその指示を飛ばすとジョブが残る。その場合、次の `[away ping]` が来たときに hook が再度削除を指示する。手動で消すなら「away の cron を消して」と言えばよい
-- 状態ファイルは `state/away.<session_id>.state`、ログは `away.log`（どちらもスキルのディレクトリ内）。12 時間以上更新されていない状態ファイルは次回の `/away` で自動削除される
-- `allowed-tools` は `arm.sh` の起動と cron ツール（`CronCreate` / `CronDelete` / `CronList`）に限定
+## Notes
+- **The session stays in its normal idle state while waiting**. Nothing holds the process (no Stop hook), so it does not trigger the Claude Desktop unresponsive-session watchdog (about 1000 seconds). It runs at the same interval in both the desktop app and the terminal CLI
+- **The hook is registered only in the session where `/away` was typed**. Other sessions are unaffected
+- **Claude performs the cron deletion on disarm**. The hook only removes the state file and tells Claude to delete the jobs, so if Claude skips that instruction the jobs remain. In that case the hook re-issues the instruction on the next `[away ping]`. To delete manually, say "delete the away cron jobs"
+- The state file is `state/away.<session_id>.state` and the log is `away.log`, both inside the skill directory. State files not updated for 12 hours or more are removed on the next `/away`
+- `allowed-tools` is limited to launching `arm.sh` and the cron tools (`CronCreate` / `CronDelete` / `CronList`)
 
-## トラブルシューティング
+## Troubleshooting
 
-| 症状 | 確認すること |
+| Symptom | What to check |
 |---|---|
-| `/away` が `/` メニューに出ない | 置き場所が `~/.claude/skills/away/` か。Claude Code を再起動したか |
-| `Shell command permission check failed` | `SKILL.md` の `allowed-tools` と `!` 行のコマンドが一致しているか（編集していなければ一致する） |
-| ping が来ない | `away.log` の `armed` 行に `ping_cron=` が出ているか。Claude が `CronCreate` を呼んだか（応答に「Scheduled recurring job」があるか） |
-| 戻ったのに ping が続く | 「away の cron を消して」と言う。hook が動いていなければ Git Bash が入っているか確認 |
-| 期限が来ても終わらない | `[away expired]` のジョブが登録されているか `CronList` で確認 |
+| `/away` does not appear in the `/` menu | Is it at `~/.claude/skills/away/`? Did you restart Claude Code? |
+| `Shell command permission check failed` | Do `allowed-tools` in `SKILL.md` and the `!` line command match? (They do unless edited) |
+| No pings arrive | Does the `armed` line in `away.log` include `ping_cron=`? Did Claude call `CronCreate` (look for "Scheduled recurring job" in the response)? |
+| Pings continue after you're back | Say "delete the away cron jobs". If the hook isn't running, check that Git Bash is installed |
+| It doesn't end at expiry | Check with `CronList` that the `[away expired]` job is registered |
 
-## 免責
-- 効果は Claude Code のプロンプトキャッシュの仕組みに依存。常にコスト削減になることは保証しない
-- ping は API 呼び出しであり、少量ながら利用枠を消費する。本当に戻ってくる離席のときだけ使うこと
-- Claude Code の hook や cron の仕様が変わると動かなくなる可能性がある
-- 何か不具合が起きても利用は自己責任で
+## Disclaimer
+- The effect depends on how Claude Code's prompt cache works. Cost savings are not guaranteed
+- Each ping is an API call and consumes a small amount of your usage limit. Use it only when you actually intend to come back
+- Changes to Claude Code's hook or cron behavior may break this skill
+- Use at your own risk
 
-## ライセンス
+## License
 MIT
